@@ -4,6 +4,7 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
 import os
+from fastapi.middleware.cors import CORSMiddleware
 
 # Routers
 from routes.purchase_router import router as purchase_router
@@ -17,6 +18,14 @@ app = FastAPI()
 os.makedirs("uploads/designs", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
+# Add CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to specific domains in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # Include Routers
 app.include_router(auth_router, prefix="/auth")
 app.include_router(store_router, prefix="/store")
