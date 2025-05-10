@@ -7,5 +7,6 @@ class UserLogin(BaseModel):
 class AddUser(BaseModel):
     full_name: str
     phone_number: str
-    dob: str  # format: YYYY-MM-DD
-    role: str  # MAIN_STORE, SUB_STORE, FACTORY
+    email: str           # ✅ NEW FIELD
+    dob: str             # Format: YYYY-MM-DD
+    role: str            # MAIN_STORE, SUB_STORE, FACTORY, etc.

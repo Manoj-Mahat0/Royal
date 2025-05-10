@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+from fastapi import APIRouter, Body, Depends, HTTPException
+from utils.email_helper import send_birthday_email
 from models.store_model import StoreCreate
 from models.user_model import AddUser
 from database import db
@@ -49,18 +51,51 @@ def add_user(payload: AddUser):
     new_user = payload.dict()
     new_user["loyalty_points"] = 50  # ✅ Add 50 loyalty points
 
-    db.users.insert_one(new_user)  # ✅ This updates MongoDB
+    db.users.insert_one(new_user)
 
     return {
         "message": f"{new_user['role']} user created successfully with 50 loyalty points.",
         "user": {
             "full_name": new_user["full_name"],
             "phone_number": new_user["phone_number"],
+            "email": new_user["email"],                        # ✅ Included in response
             "role": new_user["role"],
             "loyalty_points": new_user["loyalty_points"]
         }
     }
+
+
 @router.get("/all")
 def get_all_store_names():
     stores = db.stores.find({}, {"name": 1})  # Only fetch name field
     return [{"_id": str(s["_id"]), "name": s["name"]} for s in stores]
+
+@router.post("/send-auto-birthday-wishes")
+def send_birthday_emails_from_db():
+    today = datetime.now()
+    today_str = today.strftime("%m-%d")  # e.g., '05-10'
+
+    success_list = []
+    fail_list = []
+
+    users = db.users.find()
+    for user in users:
+        dob = user.get("dob", "")  # Expected format: 'YYYY-MM-DD'
+        email = user.get("email") or user.get("phone_number") + "@example.com"  # fallback
+        name = user.get("full_name", "Customer")
+
+        if dob:
+            try:
+                dob_date = datetime.strptime(dob, "%Y-%m-%d")
+                if dob_date.strftime("%m-%d") == today_str:
+                    message = f"Happy Birthday, {name}! 🎉 Enjoy your day with a delicious cake from us!"
+                    sent = send_birthday_email(to_email=email, to_name=name, custom_message=message)
+                    (success_list if sent else fail_list).append(email)
+            except Exception as e:
+                fail_list.append(email)
+
+    return {
+        "sent": success_list,
+        "failed": fail_list,
+        "summary": f"{len(success_list)} emails sent, {len(fail_list)} failed"
+    }
