@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from models.purchase_model import PurchaseRequest
 from database import db
 
@@ -50,4 +50,16 @@ def handle_purchase(data: PurchaseRequest):
         "amount_paid": final_amount,
         "points_earned": points_earned,
         "new_balance": current_points - data.loyalty_points_to_use + points_earned
+    }
+
+@router.get("/loyalty-points")
+def get_loyalty_points(phone_number: str = Query(..., description="User's phone number")):
+    user = db.users.find_one({"phone_number": phone_number})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "full_name": user.get("full_name", ""),
+        "phone_number": user["phone_number"],
+        "loyalty_points": user.get("loyalty_points", 0)
     }
