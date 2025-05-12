@@ -12,7 +12,7 @@ def handle_purchase(data: PurchaseRequest):
 
     current_points = user.get("loyalty_points", 0)
 
-    # Validate user-supplied points
+    # Validate points usage
     if data.loyalty_points_to_use > current_points:
         raise HTTPException(status_code=400, detail="Not enough loyalty points")
     if data.loyalty_points_to_use < 0:
@@ -21,22 +21,25 @@ def handle_purchase(data: PurchaseRequest):
     discount = data.loyalty_points_to_use * 0.2
     final_amount = max(data.amount - discount, 0)
 
-    # Deduct loyalty points
+    # Deduct used points
     db.users.update_one(
         {"_id": user["_id"]},
         {"$inc": {"loyalty_points": -data.loyalty_points_to_use}}
     )
 
-    # Award new points
-    points_earned = int(final_amount // 100) * 10
-    db.users.update_one(
-        {"_id": user["_id"]},
-        {"$inc": {"loyalty_points": points_earned}}
-    )
+    # Only award if amount ≥ 500 AND product type is BAKERY
+    points_earned = 0
+    if final_amount >= 500 and data.product_type.upper() == "BAKERY":
+        points_earned = int(final_amount // 100) * 10
+        db.users.update_one(
+            {"_id": user["_id"]},
+            {"$inc": {"loyalty_points": points_earned}}
+        )
 
     db.purchases.insert_one({
         "phone_number": data.phone_number,
         "original_amount": data.amount,
+        "product_type": data.product_type,
         "loyalty_points_used": data.loyalty_points_to_use,
         "discount_applied": discount,
         "final_amount": final_amount,
@@ -51,6 +54,7 @@ def handle_purchase(data: PurchaseRequest):
         "points_earned": points_earned,
         "new_balance": current_points - data.loyalty_points_to_use + points_earned
     }
+
 
 @router.get("/loyalty-points")
 def get_loyalty_points(phone_number: str = Query(..., description="User's phone number")):
