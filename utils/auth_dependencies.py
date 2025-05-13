@@ -16,3 +16,20 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         return {"id": str(user["_id"]), "role": user["role"]}
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+def get_current_user_rolewise(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("id")
+        role = payload.get("role")
+        if user_id is None or role is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+
+        user = db.users.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+
+        return {"id": str(user["_id"]), "role": user["role"]}
+
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
