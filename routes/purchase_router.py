@@ -12,7 +12,11 @@ def handle_purchase(data: PurchaseRequest):
 
     current_points = user.get("loyalty_points", 0)
 
-    # Validate points usage
+    # Disallow using loyalty points if amount is < 500
+    if data.amount < 500 and data.loyalty_points_to_use > 0:
+        raise HTTPException(status_code=400, detail="Cannot use loyalty points for purchases below ₹500")
+
+    # Validate usage
     if data.loyalty_points_to_use > current_points:
         raise HTTPException(status_code=400, detail="Not enough loyalty points")
     if data.loyalty_points_to_use < 0:
@@ -27,7 +31,7 @@ def handle_purchase(data: PurchaseRequest):
         {"$inc": {"loyalty_points": -data.loyalty_points_to_use}}
     )
 
-    # Only award if amount ≥ 500 AND product type is BAKERY
+    # Only award points if final_amount ≥ 500 AND product is BAKERY
     points_earned = 0
     if final_amount >= 500 and data.product_type.upper() == "BAKERY":
         points_earned = int(final_amount // 100) * 10
@@ -54,7 +58,6 @@ def handle_purchase(data: PurchaseRequest):
         "points_earned": points_earned,
         "new_balance": current_points - data.loyalty_points_to_use + points_earned
     }
-
 
 @router.get("/loyalty-points")
 def get_loyalty_points(phone_number: str = Query(..., description="User's phone number")):
