@@ -31,7 +31,7 @@ def handle_purchase(data: PurchaseRequest):
         {"$inc": {"loyalty_points": -data.loyalty_points_to_use}}
     )
 
-    # Only award points if final_amount ≥ 500 AND product is BAKERY
+    # Only award points if final_amount ≥ 500 AND product is BAKERY or NOT
     points_earned = 0
     if final_amount >= 500 and data.product_type.upper() == "BAKERY":
         points_earned = int(final_amount // 100) * 10
