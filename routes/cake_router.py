@@ -33,6 +33,11 @@ def place_order(order: CakeOrder):
     db.cake_orders.insert_one(order.dict())
     return {"message": "Order placed successfully"}
 
+@router.get("/options/cake-names")
+def get_cake_names():
+    cakes = db.cake_names.find()
+    return [cake["name"] for cake in cakes]
+
 @router.get("/cake/orders/{phone}")
 def get_orders(phone: str):
     orders = db.cake_orders.find({"phone_number": phone})
@@ -81,21 +86,21 @@ def place_bulk_cake_order(order: CakeOrder):
     if not db.stores.find_one({"_id": ObjectId(order.store_id)}):
         raise HTTPException(status_code=404, detail="Store not found")
 
-    total_quantity = order.quantity_1lbs + order.quantity_2lbs + order.quantity_3lbs
+    total_quantity = sum(
+        cake.quantity_1lbs + cake.quantity_2lbs + cake.quantity_3lbs
+        for cake in order.cakes
+    )
+
     if total_quantity == 0:
-        raise HTTPException(status_code=400, detail="At least one quantity must be greater than 0")
+        raise HTTPException(status_code=400, detail="At least one cake must have quantity greater than 0")
 
     db.cake_orders.insert_one(order.dict())
 
     return {
-        "message": f"Cake order for '{order.cake_name}' placed by store",
-        "status": order.status,
+        "message": "Multi-cake order placed successfully",
         "store_id": order.store_id,
-        "quantities": {
-            "1lbs": order.quantity_1lbs,
-            "2lbs": order.quantity_2lbs,
-            "3lbs": order.quantity_3lbs
-        }
+        "status": order.status,
+        "cakes": order.cakes
     }
 
 
