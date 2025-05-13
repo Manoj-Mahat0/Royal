@@ -1,15 +1,18 @@
 from pydantic import BaseModel
 from typing import List
 
+class CakeItem(BaseModel):
+    cake_name: str
+    quantity_1lbs: int = 0
+    quantity_2lbs: int = 0
+    quantity_3lbs: int = 0
+
 class CakeOrder(BaseModel):
-    store_id: str               # ID of the store placing the order
-    cake_base: str              # e.g., Sponge, Butter
-    flavor: str                 # e.g., Vanilla, Chocolate
-    ingredients: List[str]      # list of ingredients requested
-    quantity: int               # how many cakes requested
-    delivery_date: str          # format: YYYY-MM-DD
-    status: str = "PLACED"      # default status
-    notes: str = ""             # optional message/notes
+    store_id: str
+    delivery_date: str  # YYYY-MM-DD
+    status: str = "PLACED"
+    notes: str = ""
+    cakes: List[CakeItem]
 
 
 class OrderStatusUpdate(BaseModel):

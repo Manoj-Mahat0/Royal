@@ -78,16 +78,26 @@ def get_all_orders():
 
 @router.post("/order")
 def place_bulk_cake_order(order: CakeOrder):
-    # Optional: Validate store ID
     if not db.stores.find_one({"_id": ObjectId(order.store_id)}):
         raise HTTPException(status_code=404, detail="Store not found")
 
+    total_quantity = order.quantity_1lbs + order.quantity_2lbs + order.quantity_3lbs
+    if total_quantity == 0:
+        raise HTTPException(status_code=400, detail="At least one quantity must be greater than 0")
+
     db.cake_orders.insert_one(order.dict())
+
     return {
-        "message": "Cake order placed by store",
+        "message": f"Cake order for '{order.cake_name}' placed by store",
         "status": order.status,
-        "store_id": order.store_id
+        "store_id": order.store_id,
+        "quantities": {
+            "1lbs": order.quantity_1lbs,
+            "2lbs": order.quantity_2lbs,
+            "3lbs": order.quantity_3lbs
+        }
     }
+
 
 @router.patch("/order/{order_id}/status")
 def update_order_status(order_id: str, update: OrderStatusUpdate):
