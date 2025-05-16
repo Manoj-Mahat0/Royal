@@ -3,7 +3,7 @@ from bson import ObjectId
 from click import File
 from fastapi import APIRouter, Body, Form, HTTPException, UploadFile
 from database import db
-from models.cake_order_model import CakeOrder, OrderStatusUpdate
+from models.cake_order_model import CakeOrder, CakeQuantityUpdate, OrderStatusUpdate
 import os
 
 router = APIRouter()
@@ -30,8 +30,146 @@ def get_designs():
 
 @router.post("/cake/order")
 def place_order(order: CakeOrder):
-    db.cake_orders.insert_one(order.dict())
-    return {"message": "Order placed successfully"}
+    order_data = order.dict()
+    cakes = order_data.get("cakes", [])
+
+    total_price = 0
+    enriched_cakes = []
+
+    for cake in cakes:
+        cake_name = cake.get("cake_name")
+
+        for weight, qty in [(1, cake.get("quantity_1lbs", 0)),
+                            (2, cake.get("quantity_2lbs", 0)),
+                            (3, cake.get("quantity_3lbs", 0))]:
+            if qty > 0:
+                cake_entry = db.cake_names.find_one({
+                    "name": cake_name,
+                    "weight_lb": weight
+                })
+
+                if not cake_entry:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Cake not found: {cake_name} ({weight} lb)"
+                    )
+
+                unit_price = cake_entry["price"]
+                subtotal = unit_price * qty
+                total_price += subtotal
+
+                enriched_cakes.append({
+                    "cake_name": cake_name,
+                    "weight_lb": weight,
+                    "quantity": qty,
+                    "unit_price": unit_price,
+                    "subtotal": subtotal
+                })
+
+    if not enriched_cakes:
+        raise HTTPException(status_code=400, detail="At least one valid cake quantity is required.")
+
+    db.cake_orders.insert_one({
+        "store_id": order_data["store_id"],
+        "delivery_date": order_data["delivery_date"],
+        "status": order_data.get("status", "PLACED"),
+        "notes": order_data.get("notes", ""),
+        "cakes": enriched_cakes,
+        "total_price": total_price
+    })
+
+    return {
+        "message": "Order placed successfully",
+        "total_price": total_price
+    }
+
+@router.get("/cake/order/details")
+def get_all_cake_order_details():
+    orders = db.cake_orders.find()
+    response = []
+
+    for order in orders:
+        # Get store name from store_id
+        store_name = "Unknown Store"
+        store_id = order.get("store_id")
+        if store_id and ObjectId.is_valid(store_id):
+            store = db.stores.find_one({"_id": ObjectId(store_id)})
+            if store:
+                store_name = store.get("name", "Unnamed Store")
+
+        # Build cake details
+        cake_items = []
+        for cake in order.get("cakes", []):
+            cake_items.append({
+                "cake_name": cake.get("cake_name", ""),
+                "weight_lb": cake.get("weight_lb", ""),
+                "quantity": cake.get("quantity", ""),
+                "unit_price": cake.get("unit_price", ""),
+                "subtotal": cake.get("subtotal", "")
+            })
+
+        response.append({
+            "_id": str(order["_id"]),
+            "store_name": store_name,
+            "delivery_date": order.get("delivery_date", ""),
+            "status": order.get("status", ""),
+            "notes": order.get("notes", ""),
+            "cakes": cake_items,
+            "total_price": order.get("total_price", 0)
+        })
+
+    return response
+
+@router.patch("/cake/order/{order_id}/update-cake")
+def update_cake_quantity(order_id: str, update: CakeQuantityUpdate):
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+
+    order = db.cake_orders.find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    updated = False
+    new_cakes = []
+
+    for cake in order.get("cakes", []):
+        if (cake.get("cake_name") == update.cake_name and 
+            cake.get("weight_lb") == update.weight_lb):
+            
+            # Update quantity
+            cake["quantity"] = update.new_quantity
+
+            # Recalculate subtotal
+            cake["subtotal"] = cake["unit_price"] * update.new_quantity
+
+            # Add remarks
+            cake["remarks"] = update.remarks
+
+            updated = True
+
+        new_cakes.append(cake)
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Matching cake not found in order")
+
+    # Recalculate total price
+    new_total = sum(c["subtotal"] for c in new_cakes)
+
+    db.cake_orders.update_one(
+        {"_id": ObjectId(order_id)},
+        {
+            "$set": {
+                "cakes": new_cakes,
+                "total_price": new_total
+            }
+        }
+    )
+
+    return {
+        "message": "Cake quantity and remarks updated successfully",
+        "new_total_price": new_total
+    }
+
 
 @router.get("/options/cake-names")
 def get_cake_names():
