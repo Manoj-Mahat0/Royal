@@ -35,8 +35,34 @@ def place_order(order: CakeOrder):
 
 @router.get("/options/cake-names")
 def get_cake_names():
-    cakes = db.cake_names.find()
-    return [cake["name"] for cake in cakes]
+    cakes_cursor = db.cake_names.find({}, {"_id": 0, "name": 1, "weight_lb": 1, "price": 1})
+    cakes = list(cakes_cursor)
+
+    grouped = {}
+    for cake in cakes:
+        name = cake.get("name", "")
+        if name not in grouped:
+            grouped[name] = []
+        grouped[name].append({
+            "weight_lb": cake.get("weight_lb", 0),
+            "price": cake.get("price", 0)
+        })
+
+    # Convert to desired list format
+    result = [
+        {
+            "name": name,
+            "variants": sorted(variants, key=lambda x: x["weight_lb"])
+        }
+        for name, variants in grouped.items()
+    ]
+
+    # Optional: sort alphabetically by name
+    result.sort(key=lambda x: x["name"])
+
+    return result
+
+
 
 @router.get("/cake/orders/{phone}")
 def get_orders(phone: str):
