@@ -29,57 +29,35 @@ def get_designs():
     return [d["name"] for d in designs]
 
 @router.post("/cake/order")
-def place_order(order: CakeOrder):
-    order_data = order.dict()
-    cakes = order_data.get("cakes", [])
-
-    total_price = 0
-    enriched_cakes = []
+def place_order(order: dict):
+    cakes = order.get("cakes", [])
+    
+    if not cakes:
+        raise HTTPException(status_code=400, detail="Cake list cannot be empty")
 
     for cake in cakes:
-        cake_name = cake.get("cake_name")
+        # Validate essential fields
+        if not all(k in cake and cake[k] not in [None, ""] for k in ["cake_name", "weight_lb", "quantity", "unit_price", "subtotal"]):
+            raise HTTPException(status_code=400, detail=f"Missing data in cake item: {cake}")
 
-        for weight, qty in [(1, cake.get("quantity_1lbs", 0)),
-                            (2, cake.get("quantity_2lbs", 0)),
-                            (3, cake.get("quantity_3lbs", 0))]:
-            if qty > 0:
-                cake_entry = db.cake_names.find_one({
-                    "name": cake_name,
-                    "weight_lb": weight
-                })
+    total_price = sum(cake["subtotal"] for cake in cakes)
 
-                if not cake_entry:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Cake not found: {cake_name} ({weight} lb)"
-                    )
-
-                unit_price = cake_entry["price"]
-                subtotal = unit_price * qty
-                total_price += subtotal
-
-                enriched_cakes.append({
-                    "cake_name": cake_name,
-                    "weight_lb": weight,
-                    "quantity": qty,
-                    "unit_price": unit_price,
-                    "subtotal": subtotal
-                })
-
-    if not enriched_cakes:
-        raise HTTPException(status_code=400, detail="At least one valid cake quantity is required.")
-
-    db.cake_orders.insert_one({
-        "store_id": order_data["store_id"],
-        "delivery_date": order_data["delivery_date"],
-        "status": order_data.get("status", "PLACED"),
-        "notes": order_data.get("notes", ""),
-        "cakes": enriched_cakes,
+    order_record = {
+        "store_id": order.get("store_id"),
+        "delivery_date": order.get("delivery_date"),
+        "status": order.get("status", "PLACED"),
+        "notes": order.get("notes", ""),
+        "cakes": cakes,
         "total_price": total_price
-    })
+    }
+
+    db.cake_orders.insert_one(order_record)
 
     return {
         "message": "Order placed successfully",
+        "store_id": order.get("store_id"),
+        "status": order.get("status", "PLACED"),
+        "cakes": cakes,
         "total_price": total_price
     }
 
