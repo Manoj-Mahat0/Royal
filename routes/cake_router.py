@@ -31,23 +31,50 @@ def get_designs():
 @router.post("/cake/order")
 def place_order(order: dict):
     cakes = order.get("cakes", [])
-    
     if not cakes:
         raise HTTPException(status_code=400, detail="Cake list cannot be empty")
 
-    for cake in cakes:
-        # Validate essential fields
-        if not all(k in cake and cake[k] not in [None, ""] for k in ["cake_name", "weight_lb", "quantity", "unit_price", "subtotal"]):
-            raise HTTPException(status_code=400, detail=f"Missing data in cake item: {cake}")
+    enriched_cakes = []
+    total_price = 0
 
-    total_price = sum(cake["subtotal"] for cake in cakes)
+    for cake in cakes:
+        cake_name = cake.get("cake_name")
+        weight = cake.get("weight_lb")
+        quantity = cake.get("quantity")
+
+        if not (cake_name and weight and quantity):
+            raise HTTPException(status_code=400, detail=f"Missing fields in cake: {cake}")
+
+        # Fetch unit price from DB
+        db_cake = db.cake_names.find_one({
+            "name": cake_name,
+            "weight_lb": weight
+        })
+
+        if not db_cake:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cake not found: {cake_name} ({weight} lb)"
+            )
+
+        unit_price = db_cake["price"]
+        subtotal = unit_price * quantity
+        total_price += subtotal
+
+        enriched_cakes.append({
+            "cake_name": cake_name,
+            "weight_lb": weight,
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "subtotal": subtotal
+        })
 
     order_record = {
         "store_id": order.get("store_id"),
         "delivery_date": order.get("delivery_date"),
         "status": order.get("status", "PLACED"),
         "notes": order.get("notes", ""),
-        "cakes": cakes,
+        "cakes": enriched_cakes,
         "total_price": total_price
     }
 
@@ -55,11 +82,10 @@ def place_order(order: dict):
 
     return {
         "message": "Order placed successfully",
-        "store_id": order.get("store_id"),
-        "status": order.get("status", "PLACED"),
-        "cakes": cakes,
+        "cakes": enriched_cakes,
         "total_price": total_price
     }
+
 
 @router.get("/cake/order/details")
 def get_all_cake_order_details():
