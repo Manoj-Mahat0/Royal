@@ -14,8 +14,16 @@ from routes.cake_router import router as cake_router
 
 app = FastAPI()
 
-# Mount Static Files (uploads/designs/)
+# # Mount Static Files (uploads/designs/)
+# os.makedirs("uploads/designs", exist_ok=True)
+# app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+# Create required directories if not exist
 os.makedirs("uploads/designs", exist_ok=True)
+os.makedirs("uploads/messages", exist_ok=True)
+os.makedirs("uploads/audio", exist_ok=True)
+os.makedirs("uploads/order_audio", exist_ok=True)
+
+# Mount static files from 'uploads' folder
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Add CORS Middleware
