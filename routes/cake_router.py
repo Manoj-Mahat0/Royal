@@ -48,6 +48,7 @@ def get_ingredients():
 def get_designs():
     designs = db.designs.find()
     return [d["name"] for d in designs]
+
 @router.post("/cake/order")
 async def place_order(
     store_id: str = Form(...),
@@ -146,17 +147,18 @@ def get_all_cake_order_details():
             if store:
                 store_name = store.get("name", "Unnamed Store")
 
-        # Build cake details
+        # Build cake item details
         cake_items = []
         for cake in order.get("cakes", []):
             cake_items.append({
                 "cake_name": cake.get("cake_name", ""),
                 "weight_lb": cake.get("weight_lb", ""),
-                "quantity": cake.get("quantity", ""),
-                "unit_price": cake.get("unit_price", ""),
-                "subtotal": cake.get("subtotal", "")
+                "quantity": cake.get("quantity", 0),
+                "unit_price": cake.get("unit_price", 0),
+                "subtotal": cake.get("subtotal", 0)
             })
 
+        # Build response object
         response.append({
             "_id": str(order["_id"]),
             "store_name": store_name,
@@ -164,7 +166,9 @@ def get_all_cake_order_details():
             "status": order.get("status", ""),
             "notes": order.get("notes", ""),
             "cakes": cake_items,
-            "total_price": order.get("total_price", 0)
+            "total_price": order.get("total_price", 0),
+            "audio_file": order.get("audio_path", None),
+            "created_at": order.get("created_at", "")
         })
 
     return response
