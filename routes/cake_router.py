@@ -338,7 +338,7 @@ def get_all_order_statuses():
 
 @router.post("/design/upload")
 async def upload_cake_design(
-    image: UploadFile = File(...),                       # required design image
+    image: UploadFile = File(...),
     store_id: str = Form(...),
     flavor: str = Form(...),
     delivery_date: str = Form(...),
@@ -347,8 +347,8 @@ async def upload_cake_design(
     quantity_2lbs: int = Form(0),
     quantity_3lbs: int = Form(0),
 
-    message_on_design: UploadFile = File(None),          # optional image (message)
-    audio: UploadFile = File(None),                      # optional audio
+    message_on_design: UploadFile = File(None),
+    audio: UploadFile = File(None),
     notes: str = Form(""),
     status: str = Form("PLACED")
 ):
@@ -356,7 +356,7 @@ async def upload_cake_design(
     if not db.stores.find_one({"_id": ObjectId(store_id)}):
         raise HTTPException(status_code=400, detail="Invalid store_id")
 
-    # Validate quantity: only one should be non-zero
+    # Ensure only one quantity is non-zero
     quantities = [quantity_1lbs, quantity_2lbs, quantity_3lbs]
     non_zero = [q for q in quantities if q > 0]
     if len(non_zero) != 1:
@@ -364,18 +364,25 @@ async def upload_cake_design(
 
     # Determine selected weight and quantity
     if quantity_1lbs > 0:
-        selected_weight = 1
+        selected_weight = "1lbs"
         selected_quantity = quantity_1lbs
     elif quantity_2lbs > 0:
-        selected_weight = 2
+        selected_weight = "2lbs"
         selected_quantity = quantity_2lbs
     else:
-        selected_weight = 3
+        selected_weight = "3lbs"
         selected_quantity = quantity_3lbs
+
+    # 🔍 Fetch price from flavors collection
+    flavor_doc = db.flavors.find_one({"name": flavor})
+    if not flavor_doc:
+        raise HTTPException(status_code=404, detail="Flavor not found")
+
+    price = flavor_doc.get("quantities", {}).get(selected_weight, {}).get("price", 0)
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
-    # Save main design image
+    # 📸 Save main design image
     image_ext = image.filename.split(".")[-1]
     image_filename = f"{store_id}_{timestamp}_design.{image_ext}"
     image_path = os.path.join("uploads", "designs", image_filename)
@@ -383,7 +390,7 @@ async def upload_cake_design(
     with open(image_path, "wb") as f:
         f.write(await image.read())
 
-    # Save message image (if any)
+    # 🖼️ Save message image (if any)
     message_path = None
     if message_on_design:
         msg_ext = message_on_design.filename.split(".")[-1]
@@ -393,7 +400,7 @@ async def upload_cake_design(
         with open(message_path, "wb") as f:
             f.write(await message_on_design.read())
 
-    # Save audio (if any)
+    # 🔊 Save audio (if any)
     audio_path = None
     if audio:
         audio_ext = audio.filename.split(".")[-1]
@@ -403,7 +410,7 @@ async def upload_cake_design(
         with open(audio_path, "wb") as f:
             f.write(await audio.read())
 
-    # Save to DB
+    # 📝 Save to MongoDB
     db.cake_designs.insert_one({
         "image_path": image_path,
         "message_image_path": message_path,
@@ -415,6 +422,8 @@ async def upload_cake_design(
             "delivery_date": delivery_date,
             "weight_lb": selected_weight,
             "quantity": selected_quantity,
+            "price_per_cake": price,
+            "total_price": price * selected_quantity,
             "status": status,
             "notes": notes
         }
@@ -424,7 +433,9 @@ async def upload_cake_design(
         "message": "Cake design uploaded successfully",
         "design_image": image_filename,
         "message_image": message_on_design.filename if message_on_design else None,
-        "audio_file": audio.filename if audio else None
+        "audio_file": audio.filename if audio else None,
+        "price_per_cake": price,
+        "total_price": price * selected_quantity
     }
 
 
