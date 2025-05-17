@@ -23,3 +23,7 @@ class CakeQuantityUpdate(BaseModel):
     weight_lb: int
     new_quantity: int
     remarks: Optional[str] = ""
+
+class DesignStatusUpdate(BaseModel):
+    status: str
+    remarks: str = ""  # optional

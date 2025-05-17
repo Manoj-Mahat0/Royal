@@ -3,7 +3,7 @@ from bson import ObjectId
 from click import File
 from fastapi import APIRouter, Body, Form, HTTPException, UploadFile
 from database import db
-from models.cake_order_model import CakeOrder, CakeQuantityUpdate, OrderStatusUpdate
+from models.cake_order_model import CakeOrder, CakeQuantityUpdate, DesignStatusUpdate, OrderStatusUpdate
 import os
 
 router = APIRouter()
@@ -16,7 +16,26 @@ def get_cake_bases():
 @router.get("/options/flavors")
 def get_flavors():
     flavors = db.flavors.find()
-    return [f["name"] for f in flavors]
+    result = []
+
+    for f in flavors:
+        name = f.get("name", "Unnamed Flavor")
+        quantities = f.get("quantities", {})
+
+        # Make sure all 3 weights are present
+        final_quantities = {
+            "1lbs": quantities.get("1lbs", {"price": 0, "quantity": 0}),
+            "2lbs": quantities.get("2lbs", {"price": 0, "quantity": 0}),
+            "3lbs": quantities.get("3lbs", {"price": 0, "quantity": 0}),
+        }
+
+        result.append({
+            "_id": str(f["_id"]),
+            "name": name,
+            "quantities": final_quantities
+        })
+
+    return result
 
 @router.get("/options/ingredients")
 def get_ingredients():
@@ -319,52 +338,95 @@ def get_all_order_statuses():
 
 @router.post("/design/upload")
 async def upload_cake_design(
-    # Design metadata
-    
-    image: UploadFile = File(...),
-
-    # Cake order fields
+    image: UploadFile = File(...),                       # required design image
     store_id: str = Form(...),
-    cake_base: str = Form(...),
     flavor: str = Form(...),
-    ingredients: str = Form(...),  # comma-separated
-    quantity: int = Form(...),
     delivery_date: str = Form(...),
-    status: str = Form("PLACED"),
-    notes: str = Form("")
+
+    quantity_1lbs: int = Form(0),
+    quantity_2lbs: int = Form(0),
+    quantity_3lbs: int = Form(0),
+
+    message_on_design: UploadFile = File(None),          # optional image (message)
+    audio: UploadFile = File(None),                      # optional audio
+    notes: str = Form(""),
+    status: str = Form("PLACED")
 ):
     # Validate store ID
     if not db.stores.find_one({"_id": ObjectId(store_id)}):
-        return {"error": "Invalid store_id"}
+        raise HTTPException(status_code=400, detail="Invalid store_id")
 
-    # Save image
+    # Validate quantity: only one should be non-zero
+    quantities = [quantity_1lbs, quantity_2lbs, quantity_3lbs]
+    non_zero = [q for q in quantities if q > 0]
+    if len(non_zero) != 1:
+        raise HTTPException(status_code=400, detail="Only one quantity field must be non-zero")
+
+    # Determine selected weight and quantity
+    if quantity_1lbs > 0:
+        selected_weight = 1
+        selected_quantity = quantity_1lbs
+    elif quantity_2lbs > 0:
+        selected_weight = 2
+        selected_quantity = quantity_2lbs
+    else:
+        selected_weight = 3
+        selected_quantity = quantity_3lbs
+
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    ext = image.filename.split(".")[-1]
-    filename = f"{store_id.replace(' ', '_')}_{timestamp}.{ext}"
-    save_path = os.path.join("uploads", "designs", filename)
-    with open(save_path, "wb") as f:
+
+    # Save main design image
+    image_ext = image.filename.split(".")[-1]
+    image_filename = f"{store_id}_{timestamp}_design.{image_ext}"
+    image_path = os.path.join("uploads", "designs", image_filename)
+    os.makedirs(os.path.dirname(image_path), exist_ok=True)
+    with open(image_path, "wb") as f:
         f.write(await image.read())
+
+    # Save message image (if any)
+    message_path = None
+    if message_on_design:
+        msg_ext = message_on_design.filename.split(".")[-1]
+        msg_filename = f"{store_id}_{timestamp}_message.{msg_ext}"
+        message_path = os.path.join("uploads", "messages", msg_filename)
+        os.makedirs(os.path.dirname(message_path), exist_ok=True)
+        with open(message_path, "wb") as f:
+            f.write(await message_on_design.read())
+
+    # Save audio (if any)
+    audio_path = None
+    if audio:
+        audio_ext = audio.filename.split(".")[-1]
+        audio_filename = f"{store_id}_{timestamp}_audio.{audio_ext}"
+        audio_path = os.path.join("uploads", "audio", audio_filename)
+        os.makedirs(os.path.dirname(audio_path), exist_ok=True)
+        with open(audio_path, "wb") as f:
+            f.write(await audio.read())
 
     # Save to DB
     db.cake_designs.insert_one({
-        "image_path": save_path,
+        "image_path": image_path,
+        "message_image_path": message_path,
+        "audio_path": audio_path,
         "uploaded_at": datetime.utcnow(),
         "cake_details": {
             "store_id": store_id,
-            "cake_base": cake_base,
             "flavor": flavor,
-            "ingredients": [i.strip() for i in ingredients.split(",") if i.strip()],
-            "quantity": quantity,
             "delivery_date": delivery_date,
+            "weight_lb": selected_weight,
+            "quantity": selected_quantity,
             "status": status,
             "notes": notes
         }
     })
 
     return {
-        "message": "Cake design with order info uploaded successfully",
-        "filename": filename
+        "message": "Cake design uploaded successfully",
+        "design_image": image_filename,
+        "message_image": message_on_design.filename if message_on_design else None,
+        "audio_file": audio.filename if audio else None
     }
+
 
 @router.get("/designs")
 def get_all_cake_designs():
@@ -385,12 +447,13 @@ def get_all_cake_designs():
 
         response.append({
             "_id": str(d["_id"]),
-            "image_path": d.get("image_path", ""),
-            "uploaded_at": d.get("uploaded_at", ""),
             "store_name": store_name,
-            "cake_base": d.get("cake_details", {}).get("cake_base", ""),
+            "image_path": d.get("image_path", ""),
+            "message_image_path": d.get("message_image_path", None),
+            "audio_path": d.get("audio_path", None),
+            "uploaded_at": d.get("uploaded_at", ""),
             "flavor": d.get("cake_details", {}).get("flavor", ""),
-            "ingredients": d.get("cake_details", {}).get("ingredients", []),
+            "weight_lb": d.get("cake_details", {}).get("weight_lb", ""),
             "quantity": d.get("cake_details", {}).get("quantity", 1),
             "delivery_date": d.get("cake_details", {}).get("delivery_date", ""),
             "status": d.get("cake_details", {}).get("status", "PLACED"),
@@ -398,3 +461,31 @@ def get_all_cake_designs():
         })
 
     return response
+
+@router.patch("/design/{design_id}/status")
+def update_design_status(design_id: str, update: DesignStatusUpdate):
+    valid_statuses = ["PLACED", "CONFIRMED", "BAKING", "READY", "DELIVERED", "CANCELLED"]
+
+    if update.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+
+    if not ObjectId.is_valid(design_id):
+        raise HTTPException(status_code=400, detail="Invalid design ID")
+
+    result = db.cake_designs.update_one(
+        {"_id": ObjectId(design_id)},
+        {
+            "$set": {
+                "cake_details.status": update.status,
+                "cake_details.remarks": update.remarks
+            }
+        }
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Design not found")
+
+    return {
+        "message": f"Design status updated to '{update.status}'",
+        "remarks": update.remarks
+    }
