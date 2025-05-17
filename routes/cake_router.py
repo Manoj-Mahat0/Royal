@@ -1,10 +1,12 @@
 from datetime import datetime
+from typing import Optional
 from bson import ObjectId
 from click import File
 from fastapi import APIRouter, Body, Form, HTTPException, UploadFile
 from database import db
 from models.cake_order_model import CakeOrder, CakeQuantityUpdate, DesignStatusUpdate, OrderStatusUpdate
 import os
+import json
 
 router = APIRouter()
 
@@ -46,17 +48,27 @@ def get_ingredients():
 def get_designs():
     designs = db.designs.find()
     return [d["name"] for d in designs]
-
 @router.post("/cake/order")
-def place_order(order: dict):
-    cakes = order.get("cakes", [])
-    if not cakes:
-        raise HTTPException(status_code=400, detail="Cake list cannot be empty")
+async def place_order(
+    store_id: str = Form(...),
+    delivery_date: str = Form(...),
+    status: str = Form("PLACED"),
+    notes: str = Form(""),
+    cakes: str = Form(...),  # Must be a JSON stringified list of cakes
+    audio: Optional[UploadFile] = File(None)
+):
+    # Parse cakes list
+    try:
+        cakes_list = json.loads(cakes)
+        if not isinstance(cakes_list, list) or not cakes_list:
+            raise ValueError
+    except:
+        raise HTTPException(status_code=400, detail="Invalid cakes format. Must be a JSON array.")
 
     enriched_cakes = []
     total_price = 0
 
-    for cake in cakes:
+    for cake in cakes_list:
         cake_name = cake.get("cake_name")
         weight = cake.get("weight_lb")
         quantity = cake.get("quantity")
@@ -64,7 +76,7 @@ def place_order(order: dict):
         if not (cake_name and weight and quantity):
             raise HTTPException(status_code=400, detail=f"Missing fields in cake: {cake}")
 
-        # Fetch unit price from DB
+        # Find the matching cake from DB
         db_cake = db.cake_names.find_one({
             "name": cake_name,
             "weight_lb": weight
@@ -88,23 +100,37 @@ def place_order(order: dict):
             "subtotal": subtotal
         })
 
+    # Save optional audio
+    audio_path = None
+    if audio:
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        ext = audio.filename.split(".")[-1]
+        audio_filename = f"{store_id}_{timestamp}_order_audio.{ext}"
+        audio_path = os.path.join("uploads", "order_audio", audio_filename)
+        os.makedirs(os.path.dirname(audio_path), exist_ok=True)
+        with open(audio_path, "wb") as f:
+            f.write(await audio.read())
+
+    # Final order record
     order_record = {
-        "store_id": order.get("store_id"),
-        "delivery_date": order.get("delivery_date"),
-        "status": order.get("status", "PLACED"),
-        "notes": order.get("notes", ""),
+        "store_id": store_id,
+        "delivery_date": delivery_date,
+        "status": status,
+        "notes": notes,
         "cakes": enriched_cakes,
-        "total_price": total_price
+        "total_price": total_price,
+        "audio_path": audio_path,
+        "created_at": datetime.utcnow()
     }
 
     db.cake_orders.insert_one(order_record)
 
     return {
         "message": "Order placed successfully",
+        "total_price": total_price,
         "cakes": enriched_cakes,
-        "total_price": total_price
+        "audio_file": audio.filename if audio else None
     }
-
 
 @router.get("/cake/order/details")
 def get_all_cake_order_details():
