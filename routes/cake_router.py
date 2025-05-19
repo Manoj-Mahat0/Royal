@@ -377,22 +377,21 @@ async def upload_cake_design(
     quantity_2lbs: int = Form(0),
     quantity_3lbs: int = Form(0),
 
-    message_on_design: UploadFile = File(None),
-    audio: UploadFile = File(None),
+    message_on_design: Optional[UploadFile] = File(None),
     notes: str = Form(""),
     status: str = Form("PLACED")
 ):
-    # Validate store ID
+    # ✅ Validate store ID
     if not db.stores.find_one({"_id": ObjectId(store_id)}):
         raise HTTPException(status_code=400, detail="Invalid store_id")
 
-    # Ensure only one quantity is non-zero
+    # ✅ Ensure only one quantity is non-zero
     quantities = [quantity_1lbs, quantity_2lbs, quantity_3lbs]
     non_zero = [q for q in quantities if q > 0]
     if len(non_zero) != 1:
         raise HTTPException(status_code=400, detail="Only one quantity field must be non-zero")
 
-    # Determine selected weight and quantity
+    # ✅ Determine selected weight and quantity
     if quantity_1lbs > 0:
         selected_weight = "1lbs"
         selected_quantity = quantity_1lbs
@@ -403,7 +402,7 @@ async def upload_cake_design(
         selected_weight = "3lbs"
         selected_quantity = quantity_3lbs
 
-    # 🔍 Fetch price from flavors collection
+    # ✅ Fetch price from flavors collection
     flavor_doc = db.flavors.find_one({"name": flavor})
     if not flavor_doc:
         raise HTTPException(status_code=404, detail="Flavor not found")
@@ -430,21 +429,12 @@ async def upload_cake_design(
         with open(message_path, "wb") as f:
             f.write(await message_on_design.read())
 
-    # 🔊 Save audio (if any)
-    audio_path = None
-    if audio:
-        audio_ext = audio.filename.split(".")[-1]
-        audio_filename = f"{store_id}_{timestamp}_audio.{audio_ext}"
-        audio_path = os.path.join("uploads", "audio", audio_filename)
-        os.makedirs(os.path.dirname(audio_path), exist_ok=True)
-        with open(audio_path, "wb") as f:
-            f.write(await audio.read())
+
 
     # 📝 Save to MongoDB
     db.cake_designs.insert_one({
         "image_path": image_path,
         "message_image_path": message_path,
-        "audio_path": audio_path,
         "uploaded_at": datetime.utcnow(),
         "cake_details": {
             "store_id": store_id,
@@ -463,7 +453,6 @@ async def upload_cake_design(
         "message": "Cake design uploaded successfully",
         "design_image": image_filename,
         "message_image": message_on_design.filename if message_on_design else None,
-        "audio_file": audio.filename if audio else None,
         "price_per_cake": price,
         "total_price": price * selected_quantity
     }
