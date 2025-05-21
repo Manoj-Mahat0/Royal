@@ -56,7 +56,6 @@ async def place_order(
     status: str = Form("PLACED"),
     notes: str = Form(""),
     cakes: str = Form(...),  # Must be a JSON stringified list of cakes
-    audio: Optional[UploadFile] = File(None)
 ):
     # Parse cakes list
     try:
@@ -102,15 +101,7 @@ async def place_order(
         })
 
     # Save optional audio
-    audio_path = None
-    if audio:
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        ext = audio.filename.split(".")[-1]
-        audio_filename = f"{store_id}_{timestamp}_order_audio.{ext}"
-        audio_path = os.path.join("uploads", "order_audio", audio_filename)
-        os.makedirs(os.path.dirname(audio_path), exist_ok=True)
-        with open(audio_path, "wb") as f:
-            f.write(await audio.read())
+    
 
     # Final order record
     order_record = {
@@ -120,7 +111,6 @@ async def place_order(
         "notes": notes,
         "cakes": enriched_cakes,
         "total_price": total_price,
-        "audio_path": audio_path,
         "created_at": datetime.utcnow()
     }
 
@@ -130,8 +120,8 @@ async def place_order(
         "message": "Order placed successfully",
         "total_price": total_price,
         "cakes": enriched_cakes,
-        "audio_file": audio.filename if audio else None
     }
+
 
 @router.get("/cake/order/details")
 def get_all_cake_order_details():
