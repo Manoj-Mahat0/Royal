@@ -12,7 +12,10 @@ router = APIRouter()
 def serialize_store(store: dict):
     store["_id"] = str(store.get("_id", ""))
     store["owner_id"] = str(store.get("owner_id", ""))
+    store["latitude"] = store.get("latitude")
+    store["longitude"] = store.get("longitude")
     return store
+
 
 @router.post("/create")
 def create_store(store: StoreCreate, user=Depends(get_current_user)):
@@ -67,8 +70,16 @@ def add_user(payload: AddUser):
 
 @router.get("/all")
 def get_all_store_names():
-    stores = db.stores.find({}, {"name": 1})  # Only fetch name field
-    return [{"_id": str(s["_id"]), "name": s["name"]} for s in stores]
+    stores = db.stores.find({}, {"name": 1, "latitude": 1, "longitude": 1})
+    return [
+        {
+            "_id": str(s["_id"]),
+            "name": s["name"],
+            "latitude": s.get("latitude"),
+            "longitude": s.get("longitude")
+        } for s in stores
+    ]
+
 
 @router.post("/send-auto-birthday-wishes")
 def send_birthday_emails_from_db():
