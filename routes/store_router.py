@@ -9,6 +9,7 @@ from bson import ObjectId
 
 router = APIRouter()
 
+
 def serialize_store(store: dict):
     store["_id"] = str(store.get("_id", ""))
     store["owner_id"] = str(store.get("owner_id", ""))
@@ -63,7 +64,7 @@ Hello {new_user['full_name']},<br><br>
 Welcome to <strong>Cake Shop</strong>! You've earned <strong>0 loyalty points</strong> just for joining us. 🎂<br><br>
 Here are your details:<br>
 <strong>Phone Number:</strong> {new_user['phone_number']}<br>
-<strong>Pass Word:</strong> {new_user['dob']}<br><br>
+<strong>Password:</strong> {new_user['dob']}<br><br>
 We’re thrilled to have you with us! 🥳
 """
 
