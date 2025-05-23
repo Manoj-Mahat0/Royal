@@ -2,11 +2,13 @@ from datetime import datetime
 from typing import Optional
 from bson import ObjectId
 from click import File
-from fastapi import APIRouter, Body, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, UploadFile
 from database import db
-from models.cake_order_model import CakeOrder, CakeQuantityUpdate, DesignStatusUpdate, OrderStatusUpdate
+from models.cake_order_model import CakeOrder, CakeOrderModel, CakeQuantityUpdate, DesignStatusUpdate, OrderStatusUpdate
 import os
 import json
+
+from utils.auth_dependencies import get_current_user_rolewise
 
 router = APIRouter()
 
@@ -509,3 +511,146 @@ def update_design_status(design_id: str, update: DesignStatusUpdate):
         "message": f"Design status updated to '{update.status}'",
         "remarks": update.remarks
     }
+
+@router.post("/cake/buy")
+def buy_cake(
+    store_id: str = Form(...),
+    flavor: str = Form(...),
+    weight: str = Form(...),
+    message_on_cake: str = Form(""),
+    user: dict = Depends(get_current_user_rolewise)
+):
+    # Validate store
+    if not ObjectId.is_valid(store_id):
+        raise HTTPException(status_code=400, detail="Invalid store ID")
+    store = db.stores.find_one({"_id": ObjectId(store_id)})
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    # Validate flavor
+    flavor_doc = db.flavors.find_one({"name": flavor})
+    if not flavor_doc:
+        raise HTTPException(status_code=404, detail="Flavor not found")
+
+    # Validate weight and get price
+    if weight not in flavor_doc.get("quantities", {}):
+        raise HTTPException(status_code=404, detail=f"Weight '{weight}' not available for this flavor")
+
+    price = flavor_doc["quantities"][weight]["price"]
+
+    # Build order data using the model
+    order = CakeOrderModel(
+        user_id=str(user["id"]),
+        store_id=store_id,
+        store_name=store["name"],
+        flavor=flavor,
+        weight=weight,
+        price=price,
+        message_on_cake=message_on_cake
+    )
+
+    # Insert into DB
+    db.cake_orders.insert_one(order.dict())
+
+    return {
+        "message": "Cake order placed successfully",
+        "order_summary": order.dict()
+    }
+
+
+# -------------------- Buy Cake --------------------
+# @router.post("/cake/buy")
+# def buy_cake(
+#     store_id: str = Form(...),
+#     flavor: str = Form(...),
+#     weight: str = Form(...),
+#     message_on_cake: str = Form(""),
+#     user: dict = Depends(get_current_user_rolewise)
+# ):
+#     if not ObjectId.is_valid(store_id):
+#         raise HTTPException(status_code=400, detail="Invalid store ID")
+
+#     store = db.stores.find_one({"_id": ObjectId(store_id)})
+#     if not store:
+#         raise HTTPException(status_code=404, detail="Store not found")
+
+#     flavor_doc = db.flavors.find_one({"name": flavor})
+#     if not flavor_doc:
+#         raise HTTPException(status_code=404, detail="Flavor not found")
+
+#     if weight not in flavor_doc.get("quantities", {}):
+#         raise HTTPException(status_code=404, detail=f"Weight '{weight}' not available")
+
+#     price = flavor_doc["quantities"][weight]["price"]
+
+#     order = CakeOrderModel(
+#         user_id=str(user["id"]),
+#         store_id=store_id,
+#         store_name=store["name"],
+#         flavor=flavor,
+#         weight=weight,
+#         price=price,
+#         message_on_cake=message_on_cake
+#     )
+
+#     db.cake_orders.insert_one(order.dict())
+
+#     return {
+#         "message": "Cake order placed successfully",
+#         "order_summary": order.dict()
+#     }
+
+# -------------------- Update Order Status --------------------
+@router.patch("/order/{order_id}/status")
+def update_order_status_by_id(order_id: str, status: str, current_user=Depends(get_current_user_rolewise)):
+    if current_user["role"] != "store":
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if status not in ["accepted", "rejected"]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    result = db.cake_orders.update_one(
+        {"_id": ObjectId(order_id), "store_id": ObjectId(current_user["id"])},
+        {"$set": {"status": status}}
+    )
+
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Order not found or already updated")
+
+    return {"message": f"Order {status} successfully"}
+
+# -------------------- User: My Orders --------------------
+@router.get("/my-orders")
+def get_my_orders(current_user=Depends(get_current_user_rolewise)):
+    # Match with string ID, not ObjectId
+    orders = list(db.cake_orders.find({"user_id": str(current_user["id"])}))
+    for order in orders:
+        order["_id"] = str(order["_id"])
+        order["store_id"] = str(order["store_id"])
+        order["user_id"] = str(order["user_id"])
+    return orders
+
+# -------------------- Store: All Orders --------------------
+@router.get("/store/orders")
+def get_all_store_orders(store_id: str = Query(...)):
+    # Validate store_id
+    if not ObjectId.is_valid(store_id):
+        raise HTTPException(status_code=400, detail="Invalid store ID")
+
+    store_oid = ObjectId(store_id)
+
+    # Optional: Validate store exists in DB
+    store = db.stores.find_one({"_id": store_oid})
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    orders_cursor = db.cake_orders.find({"store_id": store_oid})
+
+    orders = []
+    for order in orders_cursor:
+        order["_id"] = str(order["_id"])
+        order["store_id"] = str(order["store_id"])
+        order["user_id"] = str(order["user_id"])
+        orders.append(order)
+
+    return orders

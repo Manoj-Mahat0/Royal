@@ -1,6 +1,6 @@
 from datetime import datetime
 from fastapi import APIRouter, Body, Depends, HTTPException
-from utils.email_helper import send_birthday_email
+from utils.email_helper import send_birthday_email, send_email
 from models.store_model import StoreCreate
 from models.user_model import AddUser
 from database import db
@@ -52,16 +52,30 @@ def add_user(payload: AddUser):
         raise HTTPException(status_code=409, detail="User already exists with this phone number.")
 
     new_user = payload.dict()
-    new_user["loyalty_points"] = 50  # ✅ Add 50 loyalty points
+    new_user["loyalty_points"] = 0
 
     db.users.insert_one(new_user)
+
+    # ✅ Send welcome email
+    subject = "🎉 Welcome to Cake Shop!"
+    message = f"""
+Hello {new_user['full_name']},<br><br>
+Welcome to <strong>Cake Shop</strong>! You've earned <strong>0 loyalty points</strong> just for joining us. 🎂<br><br>
+Here are your details:<br>
+<strong>Phone Number:</strong> {new_user['phone_number']}<br>
+<strong>Pass Word:</strong> {new_user['dob']}<br><br>
+We’re thrilled to have you with us! 🥳
+"""
+
+    recipient_email = new_user.get("email") or new_user["phone_number"] + "@example.com"
+    send_email(to_email=recipient_email, to_name=new_user["full_name"], subject=subject, message=message)
 
     return {
         "message": f"{new_user['role']} user created successfully with 50 loyalty points.",
         "user": {
             "full_name": new_user["full_name"],
             "phone_number": new_user["phone_number"],
-            "email": new_user["email"],                        # ✅ Included in response
+            "email": new_user["email"],
             "role": new_user["role"],
             "loyalty_points": new_user["loyalty_points"]
         }

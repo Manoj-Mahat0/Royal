@@ -1,4 +1,7 @@
-from pydantic import BaseModel
+#cake_order_model
+from datetime import datetime
+from bson import ObjectId
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class CakeItem(BaseModel):
@@ -27,3 +30,15 @@ class CakeQuantityUpdate(BaseModel):
 class DesignStatusUpdate(BaseModel):
     status: str
     remarks: str = ""  # optional
+
+#--------------------------------------------#
+class CakeOrderModel(BaseModel):
+    user_id: str
+    store_id: str
+    store_name: str
+    flavor: str
+    weight: str
+    price: float
+    message_on_cake: Optional[str] = ""
+    status: Optional[str] = "PLACED"
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
