@@ -741,27 +741,21 @@ def update_order_status_by_store(
 
         if phone and price >= 300:
             loyalty_points = int(price * 0.10)
-
-            print(f"Updating loyalty for phone: {phone} with {loyalty_points} points")
-            result = db.users.update_one(
-    {"phone_number": phone},
-    {"$inc": {"loyalty_points": loyalty_points}}
-)
-            print(f"Matched: {result.matched_count}, Modified: {result.modified_count}")
-
-
-            if result.matched_count:
-                return {
-                    "message": f"Order accepted. {loyalty_points} loyalty points awarded.",
-                    "payment_method": payment_method,
-                    "remarks": remarks
-                }
-            else:
-                return {
-                    "message": "Order accepted, but user not found for loyalty update.",
-                    "payment_method": payment_method,
-                    "remarks": remarks
-                }
+            db.users.update_one(
+                {"phone_number": phone},
+                {"$inc": {"loyalty_points": loyalty_points}}
+            )
+            return {
+                "message": f"Order accepted. {loyalty_points} loyalty points awarded.",
+                "payment_method": payment_method,
+                "remarks": remarks
+            }
+        else:
+            return {
+                "message": "Order accepted. No loyalty points awarded (price below 300).",
+                "payment_method": payment_method,
+                "remarks": remarks
+            }
 
     return {
         "message": f"Order status updated to '{status}'",
@@ -769,3 +763,10 @@ def update_order_status_by_store(
         "remarks": remarks
     }
 
+@router.get("/my-loyalty-points")
+def get_my_loyalty_points(current_user=Depends(get_current_user_rolewise)):
+    user = db.users.find_one({"_id": ObjectId(current_user["id"])})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    points = user.get("loyalty_points", 0)
+    return {"loyalty_points": points}
