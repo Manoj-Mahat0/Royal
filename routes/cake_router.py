@@ -135,7 +135,7 @@ def get_all_cake_order_details():
         store_name = "Unknown Store"
         store_id = order.get("store_id")
         if store_id and ObjectId.is_valid(store_id):
-            store = db.stores.find_one({"_id": ObjectId(store_id)})
+            store = db.stores.find_one({"_id": store_id})  # if you're storing _id as string
             if store:
                 store_name = store.get("name", "Unnamed Store")
 
@@ -264,7 +264,7 @@ def get_all_orders():
         # Handle valid ObjectId lookup
         if store_id and ObjectId.is_valid(store_id):
             try:
-                store = db.stores.find_one({"_id": ObjectId(store_id)})
+                store = db.stores.find_one({"_id": store_id})  # if you're storing _id as string
                 if store:
                     store_name = store.get("name", "Unnamed Store")
             except:
@@ -344,7 +344,7 @@ def get_all_order_statuses():
         store_id = o.get("store_id", "")
         if store_id:
             try:
-                store = db.stores.find_one({"_id": ObjectId(store_id)})
+                store = db.stores.find_one({"_id": store_id})  # if you're storing _id as string
                 if store:
                     store_name = store["name"]
             except:
@@ -461,7 +461,7 @@ def get_all_cake_designs():
 
         if store_id and ObjectId.is_valid(store_id):
             try:
-                store = db.stores.find_one({"_id": ObjectId(store_id)})
+                store = db.stores.find_one({"_id": store_id})  # if you're storing _id as string
                 if store:
                     store_name = store.get("name", "Unnamed Store")
             except:
@@ -520,41 +520,45 @@ def buy_cake(
     message_on_cake: str = Form(""),
     user: dict = Depends(get_current_user_rolewise)
 ):
-    # Validate store
+
+
     if not ObjectId.is_valid(store_id):
         raise HTTPException(status_code=400, detail="Invalid store ID")
+
     store = db.stores.find_one({"_id": ObjectId(store_id)})
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
 
-    # Validate flavor
     flavor_doc = db.flavors.find_one({"name": flavor})
     if not flavor_doc:
         raise HTTPException(status_code=404, detail="Flavor not found")
 
-    # Validate weight and get price
     if weight not in flavor_doc.get("quantities", {}):
-        raise HTTPException(status_code=404, detail=f"Weight '{weight}' not available for this flavor")
+        raise HTTPException(status_code=404, detail=f"Weight '{weight}' not available")
 
     price = flavor_doc["quantities"][weight]["price"]
 
-    # Build order data using the model
-    order = CakeOrderModel(
-        user_id=str(user["id"]),
-        store_id=store_id,
-        store_name=store["name"],
-        flavor=flavor,
-        weight=weight,
-        price=price,
-        message_on_cake=message_on_cake
-    )
+    order_data = {
+        "user_name": user.get("name", "Unknown"),
+        "store_id": ObjectId(store_id),
+        "store_name": store["name"],
+        "flavor": flavor,
+        "weight": weight,
+        "price": price,
+        "message_on_cake": message_on_cake,
+        "payment_method": "",
+        "status": "PLACED",
+        "created_at": datetime.utcnow()
+    }
 
-    # Insert into DB
-    db.cake_orders.insert_one(order.dict())
+    inserted = db.cake_orders.insert_one(order_data)
+
+    # Convert response to JSON-serializable format
+    response = {**order_data, "_id": str(inserted.inserted_id), "store_id": store_id}
 
     return {
         "message": "Cake order placed successfully",
-        "order_summary": order.dict()
+        "order_summary": response
     }
 
 
@@ -570,7 +574,7 @@ def buy_cake(
 #     if not ObjectId.is_valid(store_id):
 #         raise HTTPException(status_code=400, detail="Invalid store ID")
 
-#     store = db.stores.find_one({"_id": ObjectId(store_id)})
+#     store = db.stores.find_one({"_id": store_id})  # if you're storing _id as string
 #     if not store:
 #         raise HTTPException(status_code=404, detail="Store not found")
 
@@ -602,22 +606,47 @@ def buy_cake(
 
 # -------------------- Update Order Status --------------------
 @router.patch("/order/{order_id}/status")
-def update_order_status_by_id(order_id: str, status: str, current_user=Depends(get_current_user_rolewise)):
+def update_order_status_by_id(
+    order_id: str,
+    status: str,
+    current_user=Depends(get_current_user_rolewise)
+):
+    # ✅ 1. Ensure only stores can update status
     if current_user["role"] != "store":
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    if status not in ["accepted", "rejected"]:
-        raise HTTPException(status_code=400, detail="Invalid status")
+    # ✅ 2. Check status value
+    allowed_statuses = ["accepted", "rejected"]
+    if status not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of: {allowed_statuses}"
+        )
 
+    # ✅ 3. Validate ObjectId
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+
+    # ✅ 4. Perform DB update
     result = db.cake_orders.update_one(
-        {"_id": ObjectId(order_id), "store_id": ObjectId(current_user["id"])},
-        {"$set": {"status": status}}
+        {
+            "_id": ObjectId(order_id),
+            "store_id": str(current_user["id"])  # assuming store_id is stored as a string
+        },
+        {
+            "$set": {"status": status}
+        }
     )
 
+    # ✅ 5. Handle response
     if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Order not found or already updated")
+        raise HTTPException(
+            status_code=404,
+            detail="Order not found or already updated"
+        )
 
     return {"message": f"Order {status} successfully"}
+
 
 # -------------------- User: My Orders --------------------
 @router.get("/my-orders")
@@ -633,24 +662,110 @@ def get_my_orders(current_user=Depends(get_current_user_rolewise)):
 # -------------------- Store: All Orders --------------------
 @router.get("/store/orders")
 def get_all_store_orders(store_id: str = Query(...)):
-    # Validate store_id
-    if not ObjectId.is_valid(store_id):
-        raise HTTPException(status_code=400, detail="Invalid store ID")
-
-    store_oid = ObjectId(store_id)
-
-    # Optional: Validate store exists in DB
-    store = db.stores.find_one({"_id": store_oid})
+    # ✅ Handle both string and ObjectId types
+    store = db.stores.find_one({
+        "$or": [
+            {"_id": store_id},
+            {"_id": ObjectId(store_id)} if ObjectId.is_valid(store_id) else {"_id": None}
+        ]
+    })
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
 
-    orders_cursor = db.cake_orders.find({"store_id": store_oid})
-
+    orders_cursor = db.cake_orders.find({"store_id": store_id})
     orders = []
+
     for order in orders_cursor:
-        order["_id"] = str(order["_id"])
-        order["store_id"] = str(order["store_id"])
-        order["user_id"] = str(order["user_id"])
-        orders.append(order)
+        user_name = order.get("user_name", "Unknown User")
+        payment_method = order.get("payment_method", "")
+
+        orders.append({
+            "_id": str(order.get("_id")),
+            "store_id": str(order.get("store_id", "")),
+            "user_name": user_name,
+            "flavor": order.get("flavor", ""),
+            "weight": order.get("weight", ""),
+            "price": order.get("price", 0),
+            "message_on_cake": order.get("message_on_cake", ""),
+            "payment_method": payment_method,
+            "status": order.get("status", ""),
+            "created_at": order.get("created_at", ""),
+            "store_name": store.get("name", "Unknown Store"),
+        })
 
     return orders
+
+# -------------------- Store: Order Details --------------------
+
+
+@router.patch("/store/order/status")
+def update_order_status_by_store(
+    order_id: str = Query(..., description="The order's ObjectId"),
+    status: str = Query(..., description="accepted or rejected"),
+    payment_method: str = Query("", description="e.g., Online or Cash on Delivery"),
+    remarks: str = Query("", description="Optional remarks")
+):
+    # ✅ Validate status
+    if status not in ["accepted", "rejected"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid status. Must be 'accepted' or 'rejected'."
+        )
+
+    # ✅ Validate ObjectId
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+
+    # ✅ Fetch the order
+    order = db.cake_orders.find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # ✅ Update order fields
+    update_data = {
+        "status": status,
+        "remarks": remarks
+    }
+    if payment_method:
+        update_data["payment_method"] = payment_method
+
+    db.cake_orders.update_one(
+        {"_id": ObjectId(order_id)},
+        {"$set": update_data}
+    )
+
+    # ✅ Award loyalty points if order is accepted and price >= 300
+    if status == "accepted":
+        phone = order.get("phone_number")
+        price = order.get("price", 0)
+
+        if phone and price >= 300:
+            loyalty_points = int(price * 0.10)
+
+            print(f"Updating loyalty for phone: {phone} with {loyalty_points} points")
+            result = db.users.update_one(
+    {"phone_number": phone},
+    {"$inc": {"loyalty_points": loyalty_points}}
+)
+            print(f"Matched: {result.matched_count}, Modified: {result.modified_count}")
+
+
+            if result.matched_count:
+                return {
+                    "message": f"Order accepted. {loyalty_points} loyalty points awarded.",
+                    "payment_method": payment_method,
+                    "remarks": remarks
+                }
+            else:
+                return {
+                    "message": "Order accepted, but user not found for loyalty update.",
+                    "payment_method": payment_method,
+                    "remarks": remarks
+                }
+
+    return {
+        "message": f"Order status updated to '{status}'",
+        "payment_method": payment_method,
+        "remarks": remarks
+    }
+
