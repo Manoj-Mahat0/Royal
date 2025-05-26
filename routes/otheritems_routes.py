@@ -109,6 +109,10 @@ def buy_item(
     store_id: str = Form(..., description="Store ID"),
     user: dict = Depends(get_current_user_rolewise)
 ):
+    # ✅ Role-based access check
+    if user["role"] != "USER":
+        raise HTTPException(status_code=403, detail="Only users with role 'USER' can place an order")
+
     if item_type not in ["snack", "pastry"]:
         raise HTTPException(status_code=400, detail="Invalid item_type. Must be 'snack' or 'pastry'.")
 
@@ -144,7 +148,7 @@ def buy_item(
         "created_at": datetime.utcnow()
     }
     result = order_collection.insert_one(order)
-    order["_id"] = str(result.inserted_id)  # Add inserted ID and convert to str
+    order["_id"] = str(result.inserted_id)
 
     return {
         "message": f"{item_type.capitalize()} order placed successfully",
