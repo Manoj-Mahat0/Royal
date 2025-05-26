@@ -741,15 +741,22 @@ def update_order_status_by_store(
 
         if phone and price >= 300:
             loyalty_points = int(price * 0.10)
-            db.users.update_one(
+            user_result = db.users.update_one(
                 {"phone_number": phone},
                 {"$inc": {"loyalty_points": loyalty_points}}
             )
-            return {
-                "message": f"Order accepted. {loyalty_points} loyalty points awarded.",
-                "payment_method": payment_method,
-                "remarks": remarks
-            }
+            if user_result.matched_count:
+                return {
+                    "message": f"Order accepted. {loyalty_points} loyalty points awarded.",
+                    "payment_method": payment_method,
+                    "remarks": remarks
+                }
+            else:
+                return {
+                    "message": "Order accepted, but user not found for loyalty update.",
+                    "payment_method": payment_method,
+                    "remarks": remarks
+                }
         else:
             return {
                 "message": "Order accepted. No loyalty points awarded (price below 300).",
