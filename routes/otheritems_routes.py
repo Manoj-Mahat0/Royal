@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Body, Depends, HTTPException
+from datetime import datetime
+from fastapi import APIRouter, Body, Depends, Form, HTTPException
 from database import db
 from bson import ObjectId
 
@@ -98,3 +99,54 @@ def delete_pastry(
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Pastry not found")
     return {"message": "Pastry deleted"}
+
+# ---- Order Snacks or Pastries ----
+@router.post("/buy")
+def buy_item(
+    item_type: str = Form(..., description="snack or pastry"),
+    item_id: str = Form(..., description="ID of the item"),
+    quantity: int = Form(1, gt=0),
+    store_id: str = Form(..., description="Store ID"),
+    user: dict = Depends(get_current_user_rolewise)
+):
+    if item_type not in ["snack", "pastry"]:
+        raise HTTPException(status_code=400, detail="Invalid item_type. Must be 'snack' or 'pastry'.")
+
+    if not ObjectId.is_valid(item_id):
+        raise HTTPException(status_code=400, detail="Invalid item ID")
+    if not ObjectId.is_valid(store_id):
+        raise HTTPException(status_code=400, detail="Invalid store ID")
+
+    collection = db.snacks if item_type == "snack" else db.pastries
+    order_collection = db.snack_orders if item_type == "snack" else db.pastry_orders
+
+    item = collection.find_one({"_id": ObjectId(item_id)})
+    if not item:
+        raise HTTPException(status_code=404, detail=f"{item_type.capitalize()} not found")
+
+    store = db.stores.find_one({"_id": ObjectId(store_id)})
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    total_price = item["price"] * quantity
+    order = {
+        "user_id": str(user["id"]),
+        "user_name": user.get("name", "Unknown"),
+        "item_type": item_type,
+        "item_id": str(item_id),
+        "item_name": item["name"],
+        "quantity": quantity,
+        "unit_price": item["price"],
+        "total_price": total_price,
+        "store_id": str(store_id),
+        "store_name": store.get("name", ""),
+        "status": "PLACED",
+        "created_at": datetime.utcnow()
+    }
+    result = order_collection.insert_one(order)
+    order["_id"] = str(result.inserted_id)  # Add inserted ID and convert to str
+
+    return {
+        "message": f"{item_type.capitalize()} order placed successfully",
+        "order": order
+    }
