@@ -777,3 +777,13 @@ def get_my_loyalty_points(current_user=Depends(get_current_user_rolewise)):
         raise HTTPException(status_code=404, detail="User not found")
     points = user.get("loyalty_points", 0)
     return {"loyalty_points": points}
+
+@router.delete("/delete-account")
+def delete_account(user=Depends(get_current_user_rolewise)):
+    user_id = user.get("id")
+    if not user_id or not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    result = db.users.delete_one({"_id": ObjectId(user_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found or already deleted")
+    return {"message": "Account deleted successfully"}
