@@ -682,7 +682,7 @@ def get_all_store_orders(store_id: str = Query(...)):
         if user_id and ObjectId.is_valid(str(user_id)):
             user = db.users.find_one({"_id": ObjectId(str(user_id))})
             if user:
-                user_name = user.get("name", "Unknown User")
+                user_name = user.get("full_name", "Unknown User")
         else:
             user_name = order.get("user_name", "Unknown User")
 
@@ -698,7 +698,7 @@ def get_all_store_orders(store_id: str = Query(...)):
             "message_on_cake": order.get("message_on_cake", ""),
             "payment_method": payment_method,
             "status": order.get("status", ""),
-            "created_at": order.get("created_at", ""),
+            "created_at": str(order.get("created_at", "")),
             "store_name": store.get("name", "Unknown Store"),
         })
 
