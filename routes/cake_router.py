@@ -661,43 +661,51 @@ def get_my_orders(current_user=Depends(get_current_user_rolewise)):
 
 # -------------------- Store: All Orders --------------------
 @router.get("/store/orders")
-def get_all_store_orders(store_id: str = Query(...)):
-    # ✅ Handle both string and ObjectId types
+def get_all_store_orders(store_id: str = Query(..., description="Store's ObjectId as string")):
+    # ✅ Ensure valid ObjectId or fallback
+    if ObjectId.is_valid(store_id):
+        store_obj_id = ObjectId(store_id)
+    else:
+        store_obj_id = store_id  # allow as plain string fallback if you're storing store_id as a string
+
+    # ✅ Fetch store document
     store = db.stores.find_one({
         "$or": [
-            {"_id": store_id},
-            {"_id": ObjectId(store_id)} if ObjectId.is_valid(store_id) else {"_id": None}
+            {"_id": store_obj_id},
+            {"_id": store_id}
         ]
     })
+
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
 
+    # ✅ Find all orders for this store
     orders_cursor = db.cake_orders.find({"store_id": store_id})
     orders = []
 
     for order in orders_cursor:
-        # Try to get user name from users collection if user_id exists
+        # 🔍 Try fetching user name
         user_name = "Unknown User"
         user_id = order.get("user_id")
+
         if user_id and ObjectId.is_valid(str(user_id)):
             user = db.users.find_one({"_id": ObjectId(str(user_id))})
             if user:
                 user_name = user.get("name", "Unknown User")
         else:
+            # fallback: if user_id is missing or invalid
             user_name = order.get("user_name", "Unknown User")
-
-        payment_method = order.get("payment_method", "")
 
         orders.append({
             "_id": str(order.get("_id")),
             "store_id": str(order.get("store_id", "")),
-            "user_id": str(order.get("user_id")),
-            # "user_name": user_name,
+            "user_id": str(order.get("user_id", "")),
+            "user_name": user_name,
             "flavor": order.get("flavor", ""),
             "weight": order.get("weight", ""),
             "price": order.get("price", 0),
             "message_on_cake": order.get("message_on_cake", ""),
-            "payment_method": payment_method,
+            "payment_method": order.get("payment_method", ""),
             "status": order.get("status", ""),
             "created_at": order.get("created_at", ""),
             "store_name": store.get("name", "Unknown Store"),
