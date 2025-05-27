@@ -676,7 +676,16 @@ def get_all_store_orders(store_id: str = Query(...)):
     orders = []
 
     for order in orders_cursor:
-        user_name = order.get("user_name", "Unknown User")
+        # Try to get user name from users collection if user_id exists
+        user_name = "Unknown User"
+        user_id = order.get("user_id")
+        if user_id and ObjectId.is_valid(str(user_id)):
+            user = db.users.find_one({"_id": ObjectId(str(user_id))})
+            if user:
+                user_name = user.get("name", "Unknown User")
+        else:
+            user_name = order.get("user_name", "Unknown User")
+
         payment_method = order.get("payment_method", "")
 
         orders.append({
@@ -694,7 +703,6 @@ def get_all_store_orders(store_id: str = Query(...)):
         })
 
     return orders
-
 # -------------------- Store: Order Details --------------------
 
 
