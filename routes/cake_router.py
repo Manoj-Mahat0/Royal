@@ -691,8 +691,8 @@ def get_all_store_orders(store_id: str = Query(...)):
         orders.append({
             "_id": str(order.get("_id")),
             "store_id": str(order.get("store_id", "")),
-            "user_id": str(order.get("user_id", "")),
-            "user_name": user_name,
+            "user_id": str(order.get("user_id")),
+            # "user_name": user_name,
             "flavor": order.get("flavor", ""),
             "weight": order.get("weight", ""),
             "price": order.get("price", 0),
