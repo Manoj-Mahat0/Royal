@@ -23,27 +23,31 @@ def create_store(store: StoreCreate, user=Depends(get_current_user)):
     if user["role"] != "MAIN_STORE":
         raise HTTPException(status_code=403, detail="Only MAIN_STORE can create new stores.")
 
-    # Step 1: Insert into stores collection
-    new_store = store.dict()
-    new_store["owner_id"] = ObjectId(user["id"])
-    db.stores.insert_one(new_store)
-
-    # Step 2: Create login user for the store
-    existing_user = db.users.find_one({"phone_number": store.phone_number})
-    if existing_user:
+    # Check for existing user with same phone number
+    if db.users.find_one({"phone_number": store.phone_number}):
         raise HTTPException(status_code=409, detail="Phone number already registered.")
 
-    db.users.insert_one({
+    # Step 1: Insert user for login
+    user_doc = {
         "full_name": store.name,
         "phone_number": store.phone_number,
         "dob": store.dob,
         "role": store.type,
         "parent_store_id": ObjectId(user["id"])
-    })
+    }
+    user_result = db.users.insert_one(user_doc)
+    user_id = user_result.inserted_id
+
+    # Step 2: Insert store with linked_user_id
+    store_doc = store.dict()
+    store_doc["owner_id"] = ObjectId(user["id"])
+    store_doc["linked_user_id"] = str(user_id)
+
+    store_result = db.stores.insert_one(store_doc)
 
     return {
         "message": f"{store.type} created successfully with login access",
-        "store": serialize_store(new_store)
+        "store": serialize_store({**store_doc, "_id": store_result.inserted_id})
     }
 
 
