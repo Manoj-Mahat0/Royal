@@ -662,7 +662,7 @@ def get_my_orders(current_user=Depends(get_current_user_rolewise)):
 # -------------------- Store: All Orders --------------------
 @router.get("/store/orders")
 def get_all_store_orders(store_id: str = Query(...)):
-    # ✅ Handle both string and ObjectId types
+    # Handle both string and ObjectId types for store lookup
     store = db.stores.find_one({
         "$or": [
             {"_id": store_id},
@@ -676,7 +676,7 @@ def get_all_store_orders(store_id: str = Query(...)):
     orders = []
 
     for order in orders_cursor:
-        # Try to get user name from users collection if user_id exists
+        # Get user name from users collection if user_id exists
         user_name = "Unknown User"
         user_id = order.get("user_id")
         if user_id and ObjectId.is_valid(str(user_id)):
@@ -703,6 +703,7 @@ def get_all_store_orders(store_id: str = Query(...)):
         })
 
     return orders
+
 # -------------------- Store: Order Details --------------------
 
 
