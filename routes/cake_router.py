@@ -676,22 +676,13 @@ def get_all_store_orders(store_id: str = Query(...)):
     orders = []
 
     for order in orders_cursor:
-        # Get user name from users collection if user_id exists
-        user_name = "Unknown User"
         user_id = order.get("user_id")
-        if user_id and ObjectId.is_valid(str(user_id)):
-            user = db.users.find_one({"_id": ObjectId(str(user_id))})
-            if user:
-                user_name = user.get("full_name", "Unknown User")
-        else:
-            user_name = order.get("user_name", "Unknown User")
-
         payment_method = order.get("payment_method", "")
 
         orders.append({
             "_id": str(order.get("_id")),
             "store_id": str(order.get("store_id", "")),
-            "user_name": user_name,
+            "user_id": str(user_id) if user_id else "",
             "flavor": order.get("flavor", ""),
             "weight": order.get("weight", ""),
             "price": order.get("price", 0),
@@ -704,6 +695,15 @@ def get_all_store_orders(store_id: str = Query(...)):
 
     return orders
 
+# -------------------- User Name --------------------
+@router.get("/user/name")
+def get_user_name(user_id: str = Query(..., description="User's ObjectId")):
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    user = db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"user_id": user_id, "full_name": user.get("full_name", "Unknown User")}
 # -------------------- Store: Order Details --------------------
 
 
