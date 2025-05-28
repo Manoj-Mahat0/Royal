@@ -369,6 +369,8 @@ async def upload_cake_design(
     quantity_2lbs: int = Form(0),
     quantity_3lbs: int = Form(0),
 
+    price: float = Form(...),  # <-- Accept price from client
+
     message_on_design: Optional[UploadFile] = File(None),
     notes: str = Form(""),
     status: str = Form("PLACED")
@@ -394,13 +396,6 @@ async def upload_cake_design(
         selected_weight = "3lbs"
         selected_quantity = quantity_3lbs
 
-    # ✅ Fetch price from flavors collection
-    flavor_doc = db.flavors.find_one({"name": flavor})
-    if not flavor_doc:
-        raise HTTPException(status_code=404, detail="Flavor not found")
-
-    price = flavor_doc.get("quantities", {}).get(selected_weight, {}).get("price", 0)
-
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
     # 📸 Save main design image
@@ -420,8 +415,6 @@ async def upload_cake_design(
         os.makedirs(os.path.dirname(message_path), exist_ok=True)
         with open(message_path, "wb") as f:
             f.write(await message_on_design.read())
-
-
 
     # 📝 Save to MongoDB
     db.cake_designs.insert_one({
@@ -448,7 +441,6 @@ async def upload_cake_design(
         "price_per_cake": price,
         "total_price": price * selected_quantity
     }
-
 
 @router.get("/designs")
 def get_all_cake_designs():
