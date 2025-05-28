@@ -7,6 +7,7 @@ from database import db
 from models.cake_order_model import CakeOrder, CakeOrderModel, CakeQuantityUpdate, DesignStatusUpdate, OrderStatusUpdate
 import os
 import json
+from zoneinfo import ZoneInfo
 
 from utils.auth_dependencies import get_current_user_rolewise
 
@@ -113,7 +114,7 @@ async def place_order(
         "notes": notes,
         "cakes": enriched_cakes,
         "total_price": total_price,
-        "created_at": datetime.utcnow()
+        "created_at": datetime.now(ZoneInfo("Asia/Kolkata"))
     }
 
     db.cake_orders.insert_one(order_record)
@@ -425,7 +426,7 @@ async def upload_cake_design(
     db.cake_designs.insert_one({
         "image_path": image_path,
         "message_image_path": message_path,
-        "uploaded_at": datetime.utcnow(),
+        "uploaded_at": datetime.now(ZoneInfo("Asia/Kolkata")),
         "cake_details": {
             "store_id": store_id,
             "flavor": flavor,
@@ -546,7 +547,7 @@ def buy_cake(
         "message_on_cake": message_on_cake,
         "payment_method": "",
         "status": "PLACED",
-        "created_at": datetime.utcnow()
+        "created_at": datetime.now(ZoneInfo("Asia/Kolkata"))
     }
 
     inserted = db.cake_orders.insert_one(order_data)
