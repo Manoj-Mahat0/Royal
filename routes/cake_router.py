@@ -134,8 +134,13 @@ def get_all_cake_order_details():
         # Get store name from store_id
         store_name = "Unknown Store"
         store_id = order.get("store_id")
-        if store_id and ObjectId.is_valid(store_id):
-            store = db.stores.find_one({"_id": store_id})  # if you're storing _id as string
+        store = None
+        if store_id:
+            # Try ObjectId lookup if valid, else try as string
+            if ObjectId.is_valid(str(store_id)):
+                store = db.stores.find_one({"_id": ObjectId(str(store_id))})
+            if not store:
+                store = db.stores.find_one({"_id": str(store_id)})
             if store:
                 store_name = store.get("name", "Unnamed Store")
 
