@@ -459,13 +459,15 @@ def get_all_cake_designs():
         store_name = "Unknown Store"
         store_id = d.get("cake_details", {}).get("store_id", "")
 
-        if store_id and ObjectId.is_valid(store_id):
-            try:
-                store = db.stores.find_one({"_id": store_id})  # if you're storing _id as string
-                if store:
-                    store_name = store.get("name", "Unnamed Store")
-            except:
-                store_name = "Error Fetching Store"
+        store = None
+        # Try ObjectId lookup if valid, else try as string
+        if store_id:
+            if ObjectId.is_valid(store_id):
+                store = db.stores.find_one({"_id": ObjectId(store_id)})
+            if not store:
+                store = db.stores.find_one({"_id": store_id})
+            if store:
+                store_name = store.get("name", "Unnamed Store")
 
         response.append({
             "_id": str(d["_id"]),
@@ -483,7 +485,6 @@ def get_all_cake_designs():
         })
 
     return response
-
 @router.patch("/design/{design_id}/status")
 def update_design_status(design_id: str, update: DesignStatusUpdate):
     valid_statuses = ["PLACED", "CONFIRMED", "BAKING", "READY", "DELIVERED", "CANCELLED"]
