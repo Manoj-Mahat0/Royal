@@ -3,6 +3,7 @@ from typing import Optional
 from bson import ObjectId
 from click import File
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, UploadFile
+import pytz
 from database import db
 from models.cake_order_model import CakeOrder, CakeOrderModel, CakeQuantityUpdate, DesignStatusUpdate, OrderStatusUpdate
 import os
@@ -96,15 +97,13 @@ async def place_order(
         total_price += subtotal
 
         enriched_cakes.append({
+            "cake_id": str(db_cake["_id"]),  # <-- Add this line
             "cake_name": cake_name,
             "weight_lb": weight,
             "quantity": quantity,
             "unit_price": unit_price,
             "subtotal": subtotal
         })
-
-    # Save optional audio
-    
 
     # Final order record
     order_record = {
@@ -114,7 +113,7 @@ async def place_order(
         "notes": notes,
         "cakes": enriched_cakes,
         "total_price": total_price,
-        "created_at": datetime.now(ZoneInfo("Asia/Kolkata"))
+        "created_at": datetime.now(pytz.timezone("Asia/Kolkata"))
     }
 
     db.cake_orders.insert_one(order_record)
@@ -124,7 +123,6 @@ async def place_order(
         "total_price": total_price,
         "cakes": enriched_cakes,
     }
-
 
 @router.get("/cake/order/details")
 def get_all_cake_order_details():
@@ -145,10 +143,11 @@ def get_all_cake_order_details():
             if store:
                 store_name = store.get("name", "Unnamed Store")
 
-        # Build cake item details
+        # Build cake item details with cake_id
         cake_items = []
         for cake in order.get("cakes", []):
             cake_items.append({
+                "cake_id": cake.get("cake_id", ""),  # <-- Include cake_id
                 "cake_name": cake.get("cake_name", ""),
                 "weight_lb": cake.get("weight_lb", ""),
                 "quantity": cake.get("quantity", 0),
@@ -170,6 +169,107 @@ def get_all_cake_order_details():
         })
 
     return response
+
+@router.patch("/cake/order/{order_id}/update")
+def update_cake_order(
+    order_id: str,
+    cake_id: Optional[str] = Form(None),
+    new_quantity: Optional[int] = Form(None),
+    new_unit_price: Optional[float] = Form(None),
+    status: Optional[str] = Form(None),
+    remarks: str = Form(""),
+    current_user=Depends(get_current_user_rolewise)
+):
+    # 🔒 Validate order_id
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+
+    order = db.cake_orders.find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # ✅ Update cake quantity and/or price
+    if cake_id and new_quantity is not None:
+        if not ObjectId.is_valid(cake_id):
+            raise HTTPException(status_code=400, detail="Invalid cake ID")
+
+        updated = False
+        new_cakes = []
+
+        for cake in order.get("cakes", []):
+            if str(cake.get("cake_id", "")) == str(cake_id):
+                if new_quantity <= 0:
+                    raise HTTPException(status_code=400, detail="Quantity must be at least 1")
+                cake["quantity"] = new_quantity
+
+                if new_unit_price is not None:
+                    cake["unit_price"] = new_unit_price
+
+                cake["subtotal"] = cake["unit_price"] * new_quantity
+                cake["remarks"] = remarks
+                updated = True
+
+            new_cakes.append(cake)
+
+        if not updated:
+            raise HTTPException(status_code=404, detail="Cake item not found in order")
+
+        new_total = sum(c["subtotal"] for c in new_cakes)
+
+        db.cake_orders.update_one(
+            {"_id": ObjectId(order_id)},
+            {
+                "$set": {
+                    "cakes": new_cakes,
+                    "total_price": new_total
+                }
+            }
+        )
+
+        return {
+            "message": "Cake quantity and price updated successfully",
+            "new_total_price": new_total
+        }
+
+    # ✅ Update order status (only accepted, rejected, shipped)
+    if status and status.lower() != "string":
+        allowed_roles = ["FACTORY", "MAIN_STORE"]
+        if current_user["role"] not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Not authorized to update order status.")
+
+        valid_statuses = ["accepted", "rejected", "shipped"]
+        if status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+            )
+
+        status_entry = {
+            "status": status,
+            "remarks": remarks,
+            "changed_by": str(current_user["id"]),
+            "changed_at": datetime.now(pytz.timezone("Asia/Kolkata"))
+        }
+
+        db.cake_orders.update_one(
+            {"_id": ObjectId(order_id)},
+            {
+                "$set": {
+                    "status": status,
+                    "remarks": remarks
+                },
+                "$push": {
+                    "status_history": status_entry
+                }
+            }
+        )
+
+        return {
+            "message": f"Order status updated to '{status}'",
+            "remarks": remarks
+        }
+
+    raise HTTPException(status_code=400, detail="No valid update parameters provided.")
 
 @router.patch("/cake/order/{order_id}/update-cake")
 def update_cake_quantity(order_id: str, update: CakeQuantityUpdate):
@@ -426,7 +526,7 @@ async def upload_cake_design(
     db.cake_designs.insert_one({
         "image_path": image_path,
         "message_image_path": message_path,
-        "uploaded_at": datetime.now(ZoneInfo("Asia/Kolkata")),
+        "uploaded_at": datetime.now(pytz.timezone("Asia/Kolkata")),
         "cake_details": {
             "store_id": store_id,
             "flavor": flavor,
@@ -483,9 +583,24 @@ def get_all_cake_designs():
         })
 
     return response
+
 @router.patch("/design/{design_id}/status")
-def update_design_status(design_id: str, update: DesignStatusUpdate):
-    valid_statuses = ["PLACED", "CONFIRMED", "BAKING", "READY", "DELIVERED", "CANCELLED"]
+def update_design_status(
+    design_id: str,
+    update: DesignStatusUpdate,
+    current_user=Depends(get_current_user_rolewise)
+):
+    # Only FACTORY or MAIN_STORE can update
+    allowed_roles = ["FACTORY", "MAIN_STORE"]
+    if current_user["role"] not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Not authorized to update design status.")
+
+    # Allowed statuses
+    valid_statuses = ["accepted", "rejected", "shipped", "received"]
+
+    # Restrict MAIN_STORE to only "received"
+    if current_user["role"] == "MAIN_STORE" and update.status != "received":
+        raise HTTPException(status_code=403, detail="Main store can only update status to 'received'.")
 
     if update.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
@@ -493,12 +608,24 @@ def update_design_status(design_id: str, update: DesignStatusUpdate):
     if not ObjectId.is_valid(design_id):
         raise HTTPException(status_code=400, detail="Invalid design ID")
 
+    # Prepare status history entry
+    status_entry = {
+        "status": update.status,
+        "remarks": update.remarks,
+        "changed_by": str(current_user["id"]),
+        "changed_at": datetime.now(pytz.timezone("Asia/Kolkata"))
+    }
+
+    # Update status and push to status_history array
     result = db.cake_designs.update_one(
         {"_id": ObjectId(design_id)},
         {
             "$set": {
                 "cake_details.status": update.status,
                 "cake_details.remarks": update.remarks
+            },
+            "$push": {
+                "status_history": status_entry
             }
         }
     )
@@ -547,7 +674,7 @@ def buy_cake(
         "message_on_cake": message_on_cake,
         "payment_method": "",
         "status": "PLACED",
-        "created_at": datetime.now(ZoneInfo("Asia/Kolkata"))
+        "created_at": datetime.now(pytz.timezone("Asia/Kolkata"))
     }
 
     inserted = db.cake_orders.insert_one(order_data)
