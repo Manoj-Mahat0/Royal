@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from models.purchase_model import PurchaseRequest
 from database import db
 
@@ -69,4 +69,18 @@ def get_loyalty_points(phone_number: str = Query(..., description="User's phone 
         "full_name": user.get("full_name", ""),
         "phone_number": user["phone_number"],
         "loyalty_points": user.get("loyalty_points", 0)
+    }
+
+@router.put("/loyalty-points")
+def update_loyalty_points(phone_number: str = Body(...), loyalty_points: int = Body(...)):
+    result = db.users.update_one(
+        {"phone_number": phone_number},
+        {"$set": {"loyalty_points": loyalty_points}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "phone_number": phone_number,
+        "loyalty_points": loyalty_points,
+        "message": "Loyalty points updated"
     }
