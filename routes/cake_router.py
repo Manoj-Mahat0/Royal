@@ -60,6 +60,8 @@ async def place_order(
     status: str = Form("PLACED"),
     notes: str = Form(""),
     cakes: str = Form(...),  # Must be a JSON stringified list of cakes
+    current_user=Depends(get_current_user_rolewise)  # <-- Add this line
+
 ):
     # Parse cakes list
     try:
@@ -107,6 +109,8 @@ async def place_order(
 
     # Final order record
     order_record = {
+        "user_id": str(current_user["id"]),  # <-- Add this
+        "phone_number": current_user.get("phone_number", ""),  # <-- Add this
         "store_id": store_id,
         "delivery_date": delivery_date,
         "status": status,

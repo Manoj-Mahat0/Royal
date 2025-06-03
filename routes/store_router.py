@@ -89,13 +89,16 @@ We’re thrilled to have you with us! 🥳
 
 @router.get("/all")
 def get_all_store_names():
-    stores = db.stores.find({}, {"name": 1, "latitude": 1, "longitude": 1})
+    stores = db.users.find(
+        {"role": {"$in": ["STORE", "MAIN_STORE"]}},
+        {"full_name": 1, "phone_number": 1, "role": 1}
+    )
     return [
         {
             "_id": str(s["_id"]),
-            "name": s["name"],
-            "latitude": s.get("latitude"),
-            "longitude": s.get("longitude")
+            "name": s.get("full_name", ""),
+            "phone_number": s.get("phone_number", ""),
+            "role": s.get("role", "")
         } for s in stores
     ]
 

@@ -13,6 +13,7 @@ from routes.store_router import router as store_router
 from routes.cake_router import router as cake_router
 from routes.otheritems_routes import router as otheritems_router  # <-- Add this import
 from routes.sale_route import router as sale_router  # <-- Add this import
+from routes.order_router import router as order_router  # <-- Add this import
 
 app = FastAPI()
 
@@ -43,6 +44,7 @@ app.include_router(purchase_router, prefix="/purchase")
 app.include_router(cake_router)
 app.include_router(otheritems_router)  # <-- Add this line after other routers are included
 app.include_router(sale_router)  # <-- Add this line to include analytics
+app.include_router(order_router, prefix="/order", tags=["Order"])
 
 # Swagger Bearer Token Support
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
